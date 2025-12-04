@@ -1,0 +1,278 @@
+{
+"-- Query to select last 50 transactions involving a specific token fingerprint\n-- Returns tx_hash, input_utxos (filtering for the token), and output_utxos (filtering for the token)\n\nWITH target_asset AS (\n    SELECT id \n    FROM multi_asset \n    WHERE fingerprint = 'asset1wd3llgkhsw6etxf2yca6cgk9ssrpva3wf0pq9a' \n),\nrelevant_tx_ids AS (\n    SELECT DISTINCT tx_id\n    FROM (\n        -- Transactions where the token is in an output\n        SELECT tx_out.tx_id\n        FROM ma_tx_out\n        JOIN tx_out ON tx_out.id = ma_tx_out.tx_out_id\n        JOIN target_asset ON ma_tx_out.ident = target_asset.id\n        \n        UNION ALL\n        \n        -- Transactions where the token is in an input (spent)\n        SELECT tx_in.tx_in_id AS tx_id\n        FROM tx_in\n        JOIN tx_out ON tx_out.tx_id = tx_in.tx_out_id AND tx_out.index = tx_in.tx_out_index\n        JOIN ma_tx_out ON ma_tx_out.tx_out_id = tx_out.id\n        JOIN target_asset ON ma_tx_out.ident = target_asset.id\n    ) AS involved_txs\n    ORDER BY tx_id DESC\n    LIMIT 60\n),\n-- Fetch input UTXOs containing the token for these transactions\nrelevant_inputs AS (\n    SELECT \n        tx_in.tx_in_id AS tx_id,\n        jsonb_build_object(\n            'tx_hash', encode(source_tx.hash, 'hex'),\n            'tx_index', tx_in.tx_out_index,\n            'address', source_tx_out.address,\n            'quantity', ma_tx_out.quantity\n        ) AS utxo_info\n    FROM relevant_tx_ids\n    JOIN tx_in ON tx_in.tx_in_id = relevant_tx_ids.tx_id\n    JOIN tx_out source_tx_out ON source_tx_out.tx_id = tx_in.tx_out_id AND source_tx_out.index = tx_in.tx_out_index\n    JOIN tx source_tx ON source_tx.id = source_tx_out.tx_id\n    JOIN ma_tx_out ON ma_tx_out.tx_out_id = source_tx_out.id\n    JOIN target_asset ON ma_tx_out.ident = target_asset.id\n),\n-- Fetch output UTXOs containing the token for these transactions\nrelevant_outputs AS (\n    SELECT \n        tx_out.tx_id,\n        jsonb_build_object(\n            'tx_index', tx_out.index,\n            'address', tx_out.address,\n            'quantity', ma_tx_out.quantity\n        ) AS utxo_info\n    FROM relevant_tx_ids\n    JOIN tx_out ON tx_out.tx_id = relevant_tx_ids.tx_id\n    JOIN ma_tx_out ON ma_tx_out.tx_out_id = tx_out.id\n    JOIN target_asset ON ma_tx_out.ident = target_asset.id\n)\nSELECT \n    encode(tx.hash, 'hex') AS tx_hash,\n    COALESCE((\n        SELECT jsonb_agg(utxo_info) \n        FROM relevant_inputs \n        WHERE relevant_inputs.tx_id = relevant_tx_ids.tx_id\n    ), '[]'::jsonb) AS input_utxos,\n    COALESCE((\n        SELECT jsonb_agg(utxo_info) \n        FROM relevant_outputs \n        WHERE relevant_outputs.tx_id = relevant_tx_ids.tx_id\n    ), '[]'::jsonb) AS output_utxos\nFROM relevant_tx_ids\nJOIN tx ON tx.id = relevant_tx_ids.tx_id\nORDER BY relevant_tx_ids.tx_id DESC\n": [
+	{
+		"tx_hash" : "b7a1777d3b85a6e316fe1b8db1821a701575664cab65dbab65fbbadb7d07591e",
+		"input_utxos" : "[{\"address\": \"addr1qyzch0p4nqhhuhvzzxajau7nary5vclcr2sa7zs77mjeuvlledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq0m4cyk\", \"tx_hash\": \"841f934ac3efed48eb8662e7c27b6d9c8e8481dab3c4c1c53a0e9927e9a7f326\", \"quantity\": 619416742640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1vyewqts3ftlupgpvad5y0fmzt6erpy8un082z5peg76rwuqkh0en4\", \"quantity\": 10000000, \"tx_index\": 0}, {\"address\": \"addr1q89lnvyk2vk7csxcdsfzla2t0594avuqv8uscwz5sgh2fg0ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqv5asu8\", \"quantity\": 619416732640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "841f934ac3efed48eb8662e7c27b6d9c8e8481dab3c4c1c53a0e9927e9a7f326",
+		"input_utxos" : "[{\"address\": \"addr1qyspw5njgap0q3tvazm3hhj9v0rj4mqkak6ajzclgwpz0wlledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq0pgwau\", \"tx_hash\": \"2c1d054118c58e008932984d856ccdad07bdfb83c53721159b8720240e0f0a1c\", \"quantity\": 619416752640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1vxjhmhc40pghtxgwpdfsdakpmzchtsvghssdyrqw4qs5g8gu7z5jm\", \"quantity\": 10000000, \"tx_index\": 0}, {\"address\": \"addr1qyzch0p4nqhhuhvzzxajau7nary5vclcr2sa7zs77mjeuvlledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq0m4cyk\", \"quantity\": 619416742640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "2c1d054118c58e008932984d856ccdad07bdfb83c53721159b8720240e0f0a1c",
+		"input_utxos" : "[{\"address\": \"addr1q8g7gwengvtulcf3wrcxgasaqgqz30tc0rp99ddlxynpsyhledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqcg6unw\", \"tx_hash\": \"f4a09ae9dba3c0349ef880be616fe93efe4bafbc8e5ff53508ee0ce0f644c455\", \"quantity\": 619416753640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q87rhfhcq9tjgzw4u8hakyj34kdhfz67x7jkw2cfglad5rlu8wn0sq2hysyatc00mvf9rtvmwj94uda9vu4sj3l6mg8sjkay48\", \"quantity\": 1000000, \"tx_index\": 0}, {\"address\": \"addr1qyspw5njgap0q3tvazm3hhj9v0rj4mqkak6ajzclgwpz0wlledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq0pgwau\", \"quantity\": 619416752640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "f4a09ae9dba3c0349ef880be616fe93efe4bafbc8e5ff53508ee0ce0f644c455",
+		"input_utxos" : "[{\"address\": \"addr1qyyln25tjs9jmn4swjuc2xrnmhnfywcxwjczpff52ry49f0ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq5yx95t\", \"tx_hash\": \"0af48513a65fa3087eeb38f5415ff6bea7c14782385c8da45001fa605ccedc3d\", \"quantity\": 619431653640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q96jq554nuzclk5ghd3qlv2w7g0gu74rzg9r793wceexvz43y3vechwccydhkl7wks2tk2clw665fqhmh366zs9wpyhqwk3m8y\", \"quantity\": 14900000000, \"tx_index\": 0}, {\"address\": \"addr1q8g7gwengvtulcf3wrcxgasaqgqz30tc0rp99ddlxynpsyhledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqcg6unw\", \"quantity\": 619416753640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "4cd61e0098db435935a860a1c596a583350a2648f298eaa435237db095ffdf75",
+		"input_utxos" : "[{\"address\": \"addr1qx7xmgu5rkc9t9cagpdxad6g29yycxlakkrk6r48utfpmtv26cykmf73eudr309zwntvc9jgngxws8adf2mzrn7z7qkq2uev73\", \"tx_hash\": \"eb755b3413a90112e7a7a43ef60f29a4002e634efe0a13df324ebb41acd143b7\", \"quantity\": 1800000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1qx7xmgu5rkc9t9cagpdxad6g29yycxlakkrk6r48utfpmtv26cykmf73eudr309zwntvc9jgngxws8adf2mzrn7z7qkq2uev73\", \"quantity\": 1800000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "eb755b3413a90112e7a7a43ef60f29a4002e634efe0a13df324ebb41acd143b7",
+		"input_utxos" : "[{\"address\": \"addr1qx7xmgu5rkc9t9cagpdxad6g29yycxlakkrk6r48utfpmtv26cykmf73eudr309zwntvc9jgngxws8adf2mzrn7z7qkq2uev73\", \"tx_hash\": \"fa70b599bec7e528c44b32bd178a332ed9d2849fc7fec6350e7a35837505f6ee\", \"quantity\": 1900000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1vya2sah5wt84yhm6yjch56h7emkzmwg4s495fy4fwfdzx5qk33wyn\", \"quantity\": 100000, \"tx_index\": 0}, {\"address\": \"addr1qx7xmgu5rkc9t9cagpdxad6g29yycxlakkrk6r48utfpmtv26cykmf73eudr309zwntvc9jgngxws8adf2mzrn7z7qkq2uev73\", \"quantity\": 1800000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "c2961700d31887e14f653e6f16a16b8322ab83e5e7ea4e6a5cf70b55fb21805e",
+		"input_utxos" : "[{\"address\": \"addr1q96jq554nuzclk5ghd3qlv2w7g0gu74rzg9r793wceexvz43y3vechwccydhkl7wks2tk2clw665fqhmh366zs9wpyhqwk3m8y\", \"tx_hash\": \"22ab58d4e3dbe45828a7c8c61ed6f14d8eb28e8aa8689fea4bf39d02c2cad54e\", \"quantity\": 100000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1q9fnnuc8jjnarn9algtaq0c5aa82n572ufq4wzc9xmtul093y3vechwccydhkl7wks2tk2clw665fqhmh366zs9wpyhqjag7rw\", \"quantity\": 10000000, \"tx_index\": 0}, {\"address\": \"addr1q9fnnuc8jjnarn9algtaq0c5aa82n572ufq4wzc9xmtul093y3vechwccydhkl7wks2tk2clw665fqhmh366zs9wpyhqjag7rw\", \"quantity\": 90000000, \"tx_index\": 2}]"
+	},
+	{
+		"tx_hash" : "fa70b599bec7e528c44b32bd178a332ed9d2849fc7fec6350e7a35837505f6ee",
+		"input_utxos" : "[{\"address\": \"addr1qx7xmgu5rkc9t9cagpdxad6g29yycxlakkrk6r48utfpmtv26cykmf73eudr309zwntvc9jgngxws8adf2mzrn7z7qkq2uev73\", \"tx_hash\": \"29d632e86305c7ac5e385f63c3c11077f83119e2901141805107d75160fd1a81\", \"quantity\": 2000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1vya2sah5wt84yhm6yjch56h7emkzmwg4s495fy4fwfdzx5qk33wyn\", \"quantity\": 100000, \"tx_index\": 0}, {\"address\": \"addr1qx7xmgu5rkc9t9cagpdxad6g29yycxlakkrk6r48utfpmtv26cykmf73eudr309zwntvc9jgngxws8adf2mzrn7z7qkq2uev73\", \"quantity\": 1900000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "0af48513a65fa3087eeb38f5415ff6bea7c14782385c8da45001fa605ccedc3d",
+		"input_utxos" : "[{\"address\": \"addr1qxenyj6ghanlm8pjc8zp7vhvy5x7wq8ev8w2cwejlkctnklledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqhc2apk\", \"tx_hash\": \"812f2266bcc426ff040398630666ecafda8022e9e4de7746a1fe9d8e5c5575cd\", \"quantity\": 619431753640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1v85q7x4720ka6xrtkplammd0p29lgruwxptaklq0sjt2p2cmhsgux\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1qyyln25tjs9jmn4swjuc2xrnmhnfywcxwjczpff52ry49f0ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq5yx95t\", \"quantity\": 619431653640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "812f2266bcc426ff040398630666ecafda8022e9e4de7746a1fe9d8e5c5575cd",
+		"input_utxos" : "[{\"address\": \"addr1q8c4ggl9l2hhszy6xmxwde4afk67d4ctvwd8lq8x7y8wpthledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqkpmdwm\", \"tx_hash\": \"dcd3925a9ed36c16e5ac733fc5efb2cfed5dc7ac573c332a1e6c3daee380df5b\", \"quantity\": 619431853640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q85q7x4720ka6xrtkplammd0p29lgruwxptaklq0sjt2p2c3y4m6mfgmkr60889npwrzwcx6gj2n7023v2vaeh7t0zmqq0fz73\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1qxenyj6ghanlm8pjc8zp7vhvy5x7wq8ev8w2cwejlkctnklledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqhc2apk\", \"quantity\": 619431753640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "8d10d69466b223e0af9835d93665032ee5d0009b1587ebf5726cf5409ddd5215",
+		"input_utxos" : "[{\"address\": \"addr1qywfrkrzr9g66cdzkm09767akzn5yhxhzuyg5gqrtja033pu8v3ysyl9macl8877fadejxnre30qzhm86f2w98yvln8qgsjlmr\", \"tx_hash\": \"afbc9d6418f4b4ceba12a7105fd69159769cde59dfdcf94f3b1cc0eb2f8bdac4\", \"quantity\": 4500000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1qxgzfx6hs0s8rl5gwpdu9e9vz65nl5x62qx8ywg0awm99kffnn32x9prrxz5lkyewu8h5hf3gkxghdxl94p6rljf3juq388u5l\", \"quantity\": 2500000, \"tx_index\": 0}, {\"address\": \"addr1qyja96ettcjeqgglc4r26us0t2mfg7zqh2y24cvtngl0lxyq87gz9lu2nxqmhkumysahg8xt9vqgzmvmyq524h26az9qhdm2ch\", \"quantity\": 2000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "e076ff1c192577d0d4b6d357570775d7b34a9adaa75d0eb5f62571f6610e2345",
+		"input_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"tx_hash\": \"94f36208242206d87f2c66944d12c4f68e057a318ad45509021e5c36ca706bba\", \"quantity\": 34900000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1vya2sah5wt84yhm6yjch56h7emkzmwg4s495fy4fwfdzx5qk33wyn\", \"quantity\": 1000000, \"tx_index\": 0}, {\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"quantity\": 33900000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "94f36208242206d87f2c66944d12c4f68e057a318ad45509021e5c36ca706bba",
+		"input_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"tx_hash\": \"d4cdbc71ad10d7d3c70624819eb94129a5d9071cc2ce9117d612954616ee054b\", \"quantity\": 34900000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"quantity\": 34900000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "d4cdbc71ad10d7d3c70624819eb94129a5d9071cc2ce9117d612954616ee054b",
+		"input_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"tx_hash\": \"29d632e86305c7ac5e385f63c3c11077f83119e2901141805107d75160fd1a81\", \"quantity\": 35900000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1vya2sah5wt84yhm6yjch56h7emkzmwg4s495fy4fwfdzx5qk33wyn\", \"quantity\": 1000000, \"tx_index\": 0}, {\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"quantity\": 34900000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "160aa28d34f69b36500f7ee473c8a50ba31593f1c12d4d900d9398ac36b0615f",
+		"input_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"tx_hash\": \"12818f340517443e605e6c9a28f9ef645f35db0d3dae59c5dba42519133ccdbf\", \"quantity\": 99999998, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q957ae8wzvs7scapejrszhesvf423u2552uv24f98s8h46xm3xehud9n8d0hjc7mq3phcjetehuhqqwsef6ttr9zjrzspa7dlz\", \"quantity\": 100, \"tx_index\": 0}, {\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 99999898, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "29d632e86305c7ac5e385f63c3c11077f83119e2901141805107d75160fd1a81",
+		"input_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"tx_hash\": \"a59d17689016bf143da07af00986dc00fdf891ad33ca95fdbe342b0394dda26f\", \"quantity\": 37900000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1qx7xmgu5rkc9t9cagpdxad6g29yycxlakkrk6r48utfpmtv26cykmf73eudr309zwntvc9jgngxws8adf2mzrn7z7qkq2uev73\", \"quantity\": 2000000, \"tx_index\": 0}, {\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"quantity\": 35900000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "dcd3925a9ed36c16e5ac733fc5efb2cfed5dc7ac573c332a1e6c3daee380df5b",
+		"input_utxos" : "[{\"address\": \"addr1qyx2pxcwzc72wwgpl7fq22skuc32j4h2etfs4jf3cf6esq0ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq0ssern\", \"tx_hash\": \"ea04a60e4f4378befd264c42ac0ebae97d59b77784de3689296d8290a426fd00\", \"quantity\": 980031753640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q9l8lsqv7r0s0lp5s98cx6yarn2cuh4vtmchyum3p94px94tr6p8nc6ee4e3sdjuhqkjqem08ef3ly0ymkg2kcnu4drqcsaz5k\", \"quantity\": 360599900000000, \"tx_index\": 0}, {\"address\": \"addr1q8c4ggl9l2hhszy6xmxwde4afk67d4ctvwd8lq8x7y8wpthledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqkpmdwm\", \"quantity\": 619431853640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "a59d17689016bf143da07af00986dc00fdf891ad33ca95fdbe342b0394dda26f",
+		"input_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"tx_hash\": \"124e2874c2c205ff6ef0fbae73f7b227f61e61c2044b7c70edd13e53951bd28a\", \"quantity\": 38000000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1vya2sah5wt84yhm6yjch56h7emkzmwg4s495fy4fwfdzx5qk33wyn\", \"quantity\": 100000, \"tx_index\": 0}, {\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"quantity\": 37900000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "53f8ca85a89a0630b45b3f99c99b5742e5f4d55b731055f87532617a7b54d3ad",
+		"input_utxos" : "[{\"address\": \"addr1q957ae8wzvs7scapejrszhesvf423u2552uv24f98s8h46xm3xehud9n8d0hjc7mq3phcjetehuhqqwsef6ttr9zjrzspa7dlz\", \"tx_hash\": \"12818f340517443e605e6c9a28f9ef645f35db0d3dae59c5dba42519133ccdbf\", \"quantity\": 1, \"tx_index\": 0}, {\"address\": \"addr1q957ae8wzvs7scapejrszhesvf423u2552uv24f98s8h46xm3xehud9n8d0hjc7mq3phcjetehuhqqwsef6ttr9zjrzspa7dlz\", \"tx_hash\": \"9f1f7cd48a3e1746e6a6c2690f63045c6b312e2e45521328cecf70be139cc0c8\", \"quantity\": 1, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1q957ae8wzvs7scapejrszhesvf423u2552uv24f98s8h46xm3xehud9n8d0hjc7mq3phcjetehuhqqwsef6ttr9zjrzspa7dlz\", \"quantity\": 2, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "12818f340517443e605e6c9a28f9ef645f35db0d3dae59c5dba42519133ccdbf",
+		"input_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"tx_hash\": \"d9ed569181142995dc6fb4bfd350cbf01f8265e6c6976938633794e10d02daee\", \"quantity\": 99999999, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q957ae8wzvs7scapejrszhesvf423u2552uv24f98s8h46xm3xehud9n8d0hjc7mq3phcjetehuhqqwsef6ttr9zjrzspa7dlz\", \"quantity\": 1, \"tx_index\": 0}, {\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 99999998, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "124e2874c2c205ff6ef0fbae73f7b227f61e61c2044b7c70edd13e53951bd28a",
+		"input_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"tx_hash\": \"7d8fc6b319bd9a13d9bd6a5e98a3de76f534d70f3f88698b4fa8de461ac47ed9\", \"quantity\": 39000000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1v9x4aq0x35udwq046pq6dcrmnuxv83kklcsh0gkfd6tq3psu7a94m\", \"quantity\": 1000000, \"tx_index\": 0}, {\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"quantity\": 38000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "7d8fc6b319bd9a13d9bd6a5e98a3de76f534d70f3f88698b4fa8de461ac47ed9",
+		"input_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"tx_hash\": \"4a0f61092551f8a08188252c3d469d86142f7b1c38e05513a837b724bd049386\", \"quantity\": 49000000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q86yx7z2f3m5kk9yrlrzp6rgrx92kj3ueternudph7natcwjr689mdufq882mn78e4gxyhumzx35xpt2t6uxa0m4lz7qqc8rew\", \"quantity\": 10000000, \"tx_index\": 0}, {\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"quantity\": 39000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "afbc9d6418f4b4ceba12a7105fd69159769cde59dfdcf94f3b1cc0eb2f8bdac4",
+		"input_utxos" : "[{\"address\": \"addr1qy0mlqqa7tt6hqj3f9d6fmpy7q5ccvruykjw70ng6frteqjlkteghqg64jwy9spxkpkqfep26wz58qm6uej2u699x6zscx6a76\", \"tx_hash\": \"8aa51304413242c5198be603f97f8c9136d9c322c5e5403b848708d3e4a553ec\", \"quantity\": 2000000, \"tx_index\": 0}, {\"address\": \"DdzFFzCqrhsyPvz8TqGPauhwcZp2k5vVyNRZS4GEDCGdwrq8f58eNjNpvV4VdZcciiPZWvfSsKCPn1fz4WFoF1GhDGRwddqJgQakT6Ed\", \"tx_hash\": \"9fe58b6fed21e6fa6f131f10233859b57b017c3506a5cbb38930c75d0eb9cf0c\", \"quantity\": 2500000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1qywfrkrzr9g66cdzkm09767akzn5yhxhzuyg5gqrtja033pu8v3ysyl9macl8877fadejxnre30qzhm86f2w98yvln8qgsjlmr\", \"quantity\": 4500000, \"tx_index\": 0}]"
+	},
+	{
+		"tx_hash" : "9fe58b6fed21e6fa6f131f10233859b57b017c3506a5cbb38930c75d0eb9cf0c",
+		"input_utxos" : "[{\"address\": \"addr1qxgzfx6hs0s8rl5gwpdu9e9vz65nl5x62qx8ywg0awm99kffnn32x9prrxz5lkyewu8h5hf3gkxghdxl94p6rljf3juq388u5l\", \"tx_hash\": \"8aa51304413242c5198be603f97f8c9136d9c322c5e5403b848708d3e4a553ec\", \"quantity\": 98000000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"DdzFFzCqrhsyPvz8TqGPauhwcZp2k5vVyNRZS4GEDCGdwrq8f58eNjNpvV4VdZcciiPZWvfSsKCPn1fz4WFoF1GhDGRwddqJgQakT6Ed\", \"quantity\": 2500000, \"tx_index\": 0}, {\"address\": \"addr1qxgzfx6hs0s8rl5gwpdu9e9vz65nl5x62qx8ywg0awm99kffnn32x9prrxz5lkyewu8h5hf3gkxghdxl94p6rljf3juq388u5l\", \"quantity\": 95500000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "4a0f61092551f8a08188252c3d469d86142f7b1c38e05513a837b724bd049386",
+		"input_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"tx_hash\": \"ea04a60e4f4378befd264c42ac0ebae97d59b77784de3689296d8290a426fd00\", \"quantity\": 50000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1v9x4aq0x35udwq046pq6dcrmnuxv83kklcsh0gkfd6tq3psu7a94m\", \"quantity\": 1000000, \"tx_index\": 0}, {\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"quantity\": 49000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "ea04a60e4f4378befd264c42ac0ebae97d59b77784de3689296d8290a426fd00",
+		"input_utxos" : "[{\"address\": \"addr1qyaga5qfa9ee68eedr07uwuyxtte2u3jze7cgqxfnf0vp3lledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqtfmcjn\", \"tx_hash\": \"ccbe8e473450a398e144e884f7a5ba91cf990dabf68c4b386cd53a60a82ba3dd\", \"quantity\": 980031803640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1qyvhke8dpj4nhyjrmjqa60du3nu84mla9sws7glguf5dvavg2kzjrq7yy9r0nph8s76wn3ta73rfcufst2jm5a32u9lq2rw0c7\", \"quantity\": 50000000, \"tx_index\": 0}, {\"address\": \"addr1qyx2pxcwzc72wwgpl7fq22skuc32j4h2etfs4jf3cf6esq0ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq0ssern\", \"quantity\": 980031753640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "8aa51304413242c5198be603f97f8c9136d9c322c5e5403b848708d3e4a553ec",
+		"input_utxos" : "[{\"address\": \"addr1qxgzfx6hs0s8rl5gwpdu9e9vz65nl5x62qx8ywg0awm99kffnn32x9prrxz5lkyewu8h5hf3gkxghdxl94p6rljf3juq388u5l\", \"tx_hash\": \"ccbe8e473450a398e144e884f7a5ba91cf990dabf68c4b386cd53a60a82ba3dd\", \"quantity\": 100000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1qy0mlqqa7tt6hqj3f9d6fmpy7q5ccvruykjw70ng6frteqjlkteghqg64jwy9spxkpkqfep26wz58qm6uej2u699x6zscx6a76\", \"quantity\": 2000000, \"tx_index\": 0}, {\"address\": \"addr1qxgzfx6hs0s8rl5gwpdu9e9vz65nl5x62qx8ywg0awm99kffnn32x9prrxz5lkyewu8h5hf3gkxghdxl94p6rljf3juq388u5l\", \"quantity\": 98000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "d9ed569181142995dc6fb4bfd350cbf01f8265e6c6976938633794e10d02daee",
+		"input_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"tx_hash\": \"aed851939f467b9d48795eee5a6a9c8ff74b0ad831fd471003e526c3e81f7e07\", \"quantity\": 99999999, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 99999999, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "ccbe8e473450a398e144e884f7a5ba91cf990dabf68c4b386cd53a60a82ba3dd",
+		"input_utxos" : "[{\"address\": \"addr1q9tknrtvx07tnzsfmmndwzpgv3297qssfqacyp4s6maxnzlledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq4kv6rf\", \"tx_hash\": \"8beced82e245395bf6eee919b7f618557195db4dc23382df96c9443e0d249339\", \"quantity\": 980031903640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1qxgzfx6hs0s8rl5gwpdu9e9vz65nl5x62qx8ywg0awm99kffnn32x9prrxz5lkyewu8h5hf3gkxghdxl94p6rljf3juq388u5l\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1qyaga5qfa9ee68eedr07uwuyxtte2u3jze7cgqxfnf0vp3lledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqtfmcjn\", \"quantity\": 980031803640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "aed851939f467b9d48795eee5a6a9c8ff74b0ad831fd471003e526c3e81f7e07",
+		"input_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"tx_hash\": \"9f1f7cd48a3e1746e6a6c2690f63045c6b312e2e45521328cecf70be139cc0c8\", \"quantity\": 99999999, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 99999999, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "9f1f7cd48a3e1746e6a6c2690f63045c6b312e2e45521328cecf70be139cc0c8",
+		"input_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"tx_hash\": \"b2fb49882458bef4e9d6913130a998244dbf2879b295284e337d2989bebba80e\", \"quantity\": 100000000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q957ae8wzvs7scapejrszhesvf423u2552uv24f98s8h46xm3xehud9n8d0hjc7mq3phcjetehuhqqwsef6ttr9zjrzspa7dlz\", \"quantity\": 1, \"tx_index\": 0}, {\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 99999999, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "095e4e9c72b4f901bcfc027d4c7a539e249b5eea5d7e792fa3683f0318e492c6",
+		"input_utxos" : "[{\"address\": \"addr1qxrjydgjqezh6psfujuvucp7r0wkr3p9l9ty5rmn7ctmam8rzr27g03klu862usxqsru794d03gzkk8n86ta34n85z0sxucc9k\", \"tx_hash\": \"aff0e5cc8f428b386ab64e799305eec9b4ddb499ca3c10a4aa04b3954b317d41\", \"quantity\": 51000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1q8lfajtckv0fpkfrk3zc6p0qlhhhggj7nqnkqyplud0u60urhwgzx5s3j5qls5u54ddfqghjryz3csrr0pg8yget7nrsltkqcp\", \"quantity\": 36000000, \"tx_index\": 0}, {\"address\": \"addr1qymtlyrsdnpzayxan5a6kpev3utvp6n7xr5m68slfegpdylrzr27g03klu862usxqsru794d03gzkk8n86ta34n85z0szzrrxd\", \"quantity\": 15000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "aff0e5cc8f428b386ab64e799305eec9b4ddb499ca3c10a4aa04b3954b317d41",
+		"input_utxos" : "[{\"address\": \"addr1q8lfajtckv0fpkfrk3zc6p0qlhhhggj7nqnkqyplud0u60urhwgzx5s3j5qls5u54ddfqghjryz3csrr0pg8yget7nrsltkqcp\", \"tx_hash\": \"f342032a3bd867fd45f12f6b90a417a2a24aacc6b00151b5ee4939663bcc2c81\", \"quantity\": 100000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1qxrjydgjqezh6psfujuvucp7r0wkr3p9l9ty5rmn7ctmam8rzr27g03klu862usxqsru794d03gzkk8n86ta34n85z0sxucc9k\", \"quantity\": 51000000, \"tx_index\": 0}, {\"address\": \"addr1q8lfajtckv0fpkfrk3zc6p0qlhhhggj7nqnkqyplud0u60urhwgzx5s3j5qls5u54ddfqghjryz3csrr0pg8yget7nrsltkqcp\", \"quantity\": 49000000, \"tx_index\": 2}]"
+	},
+	{
+		"tx_hash" : "f342032a3bd867fd45f12f6b90a417a2a24aacc6b00151b5ee4939663bcc2c81",
+		"input_utxos" : "[{\"address\": \"addr1q9ynkldtax4hpv0ggg7pkp7m66pchcv2hl80txwdnry6kfjf8d76h6dtwzc7ss3urvrah45r30sc407w7kvumxxf4vnqvhq7y5\", \"tx_hash\": \"c217ac57f9d1b3dccb14c4967b6749fb3d6e71480ce9a718f839fff4916e103a\", \"quantity\": 100000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1q8lfajtckv0fpkfrk3zc6p0qlhhhggj7nqnkqyplud0u60urhwgzx5s3j5qls5u54ddfqghjryz3csrr0pg8yget7nrsltkqcp\", \"quantity\": 100000000, \"tx_index\": 0}]"
+	},
+	{
+		"tx_hash" : "b2fb49882458bef4e9d6913130a998244dbf2879b295284e337d2989bebba80e",
+		"input_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"tx_hash\": \"4e909a685372c0c6f7557ed42727896649d107800e43bb5ddcb8ff6230ba5b8e\", \"quantity\": 100000000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 100000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "4e909a685372c0c6f7557ed42727896649d107800e43bb5ddcb8ff6230ba5b8e",
+		"input_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"tx_hash\": \"775f85b3fb39f2610d22915c71964d8fcbf0604133d8a35799571c88515e3c1f\", \"quantity\": 100000000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 100000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "775f85b3fb39f2610d22915c71964d8fcbf0604133d8a35799571c88515e3c1f",
+		"input_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"tx_hash\": \"5d96ccba4e1fbced8d5fca1a9954e6be5a24c87a87591d19788044322a74e467\", \"quantity\": 100000000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 100000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "5d96ccba4e1fbced8d5fca1a9954e6be5a24c87a87591d19788044322a74e467",
+		"input_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"tx_hash\": \"393223530a960ced3307e53170db0603f022f306470275ffd4b343e61301e778\", \"quantity\": 100000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 100000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "fe66a44bd8483adbb463592effddad4333614d7aadd5fd01c1798a96d9aa6b15",
+		"input_utxos" : "[{\"address\": \"addr1q9n95zkx4w4l77t8szwvnsn6h6ny4khcl30m4xy7f8v49p74qne3dqwqmnejaa55wzwvkamlux2w23xcumda5ne5t2fsadgxjv\", \"tx_hash\": \"7a906cde274e3cbdc7e78945b8c0b46bedeb22bba83c40424ebe6d84f546986c\", \"quantity\": 1224503585350000, \"tx_index\": 18}]",
+		"output_utxos" : "[{\"address\": \"addr1q8q3p9zx6z4jspsjsdw0xvjh4pxmeaqx40zdp3862pda26uq48e6wpudap4u942ynntjdurz9ae9y5y7rnksdup08qtsvhrezu\", \"quantity\": 5000000, \"tx_index\": 0}, {\"address\": \"addr1qy28src6fc8j9vxqptvhzgqeuh32zwdrhk9x3vmrrezqtk74qne3dqwqmnejaa55wzwvkamlux2w23xcumda5ne5t2fsc86umw\", \"quantity\": 1224503580350000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "98cca31ce445936485fd0db664b3e3475932e0db878ac816cdb63aa08aaa74cc",
+		"input_utxos" : "[{\"address\": \"addr1qyelpa7an79qr7z9uw506vs56qhgsfr8eq7f5ruguuhfgsvsrrrehtfu7m7ql049e5qnaep75yv0ml527fujmy7xgpcs42cvyc\", \"tx_hash\": \"7a906cde274e3cbdc7e78945b8c0b46bedeb22bba83c40424ebe6d84f546986c\", \"quantity\": 1196131119880000, \"tx_index\": 17}]",
+		"output_utxos" : "[{\"address\": \"addr1q8q3p9zx6z4jspsjsdw0xvjh4pxmeaqx40zdp3862pda26uq48e6wpudap4u942ynntjdurz9ae9y5y7rnksdup08qtsvhrezu\", \"quantity\": 50000000, \"tx_index\": 0}, {\"address\": \"addr1q8dwp3avq5qjxy078j3nnxjse4ak5ce3qfpvpfmy4ck0f8ysrrrehtfu7m7ql049e5qnaep75yv0ml527fujmy7xgpcs25nxr2\", \"quantity\": 1196131069880000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "2cbbdf59a0aa3b0ee122a2c6b9385ba74109565030f6595e5a26758d76e63aa5",
+		"input_utxos" : "[{\"address\": \"addr1qx5vruvrm9708ge5p74pv22w8eglpflypptm92xfdzepvrnyuzet687wvt9y2vte6xzyyd06tve3h452tk43d2hdgm6qazg88j\", \"tx_hash\": \"7a906cde274e3cbdc7e78945b8c0b46bedeb22bba83c40424ebe6d84f546986c\", \"quantity\": 1179365294770000, \"tx_index\": 16}]",
+		"output_utxos" : "[{\"address\": \"addr1q8q3p9zx6z4jspsjsdw0xvjh4pxmeaqx40zdp3862pda26uq48e6wpudap4u942ynntjdurz9ae9y5y7rnksdup08qtsvhrezu\", \"quantity\": 5000000, \"tx_index\": 0}, {\"address\": \"addr1q92zrkqua5aput4f0j7p8g9q94ds88lnzjxuqu3ewlsdeyryuzet687wvt9y2vte6xzyyd06tve3h452tk43d2hdgm6qvng4tp\", \"quantity\": 1179365289770000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "f3aaa0dd2daa5e96f1920fea47a236f3e57e1007eb56d970fa51e619e8d130c3",
+		"input_utxos" : "[{\"address\": \"addr1q8gm43m4x0avkvkxwhn99p74jde3rq03ek7jd9dd57n0gwh687fq5dpdlny4j9asmmyrw3tk2cgakq4uw3x6vj8yzvqqcqee8m\", \"tx_hash\": \"7a906cde274e3cbdc7e78945b8c0b46bedeb22bba83c40424ebe6d84f546986c\", \"quantity\": 801741691350000, \"tx_index\": 15}]",
+		"output_utxos" : "[{\"address\": \"addr1q8sulpcxc6p8c58jpjtuq7fc3ky507nzh3a6e6vqws600fzltalj3ujjq8e8ezk3r4eu86zyr02aelaq4zx05df9ryrseh82ly\", \"quantity\": 801741691350000, \"tx_index\": 0}]"
+	},
+	{
+		"tx_hash" : "9548750b940b36b0383f9d9f5189dd33f56c7b442fb25d1bc5118d824b81a6da",
+		"input_utxos" : "[{\"address\": \"addr1q9z3rh3k7546a084vvee0xevsmf77fjtfeaqhzucuqfrdg29z80rdaft46702cenj7djepknaunyknn6pw9e3cqjx6ssyc3sy7\", \"tx_hash\": \"b08ca65fced05b505cd0dd90077564403082961235b62ba22dddd61573c9b8b2\", \"quantity\": 10000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1q920vhqtfz5njdpdsx0l3pra860c972q0tzze8m3mghetfz57ewqkj9f8y6zmqvllzz8605lstu5q7ky9j0hrk30jkjqfkg4vd\", \"quantity\": 2000000, \"tx_index\": 0}, {\"address\": \"addr1q9z3rh3k7546a084vvee0xevsmf77fjtfeaqhzucuqfrdg29z80rdaft46702cenj7djepknaunyknn6pw9e3cqjx6ssyc3sy7\", \"quantity\": 8000000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "8beced82e245395bf6eee919b7f618557195db4dc23382df96c9443e0d249339",
+		"input_utxos" : "[{\"address\": \"addr1q8r29rswfuzpdd0vru326n9c6mpxk6w0ataed8dnkdc6nf8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqzmnzvt\", \"tx_hash\": \"22ab58d4e3dbe45828a7c8c61ed6f14d8eb28e8aa8689fea4bf39d02c2cad54e\", \"quantity\": 980032003640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q8k5p7z8h5rfkpgk2vs0sc4uv643d4nsqax0l5fnxkm4gxj3xe50gu39l7s8jphn6ufg8qxv3xavflevm9dfdvzhn7gseaujqp\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1q9tknrtvx07tnzsfmmndwzpgv3297qssfqacyp4s6maxnzlledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq4kv6rf\", \"quantity\": 980031903640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "22ab58d4e3dbe45828a7c8c61ed6f14d8eb28e8aa8689fea4bf39d02c2cad54e",
+		"input_utxos" : "[{\"address\": \"addr1qxnvc3xe0glsrzp2h6ndkmle4ms6j7u5v0aumqku3pjn9r8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq47kk72\", \"tx_hash\": \"4eee6fcdbfcaa417cc44215609b26d6012a22b68e928cf85fdf01c972d3c74a9\", \"quantity\": 980032103640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q96jq554nuzclk5ghd3qlv2w7g0gu74rzg9r793wceexvz43y3vechwccydhkl7wks2tk2clw665fqhmh366zs9wpyhqwk3m8y\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1q8r29rswfuzpdd0vru326n9c6mpxk6w0ataed8dnkdc6nf8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqzmnzvt\", \"quantity\": 980032003640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "4eee6fcdbfcaa417cc44215609b26d6012a22b68e928cf85fdf01c972d3c74a9",
+		"input_utxos" : "[{\"address\": \"addr1qyf4gk952e8tyjtvtyzuhg576qmk39ld9aa644ewwpddaw8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq2mper3\", \"tx_hash\": \"c2dfcf545bf405c4de3c90d4f46459e8bb2101253700c32b5f60b5fe61ec0dd3\", \"quantity\": 980032203640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1vyewqts3ftlupgpvad5y0fmzt6erpy8un082z5peg76rwuqkh0en4\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1qxnvc3xe0glsrzp2h6ndkmle4ms6j7u5v0aumqku3pjn9r8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq47kk72\", \"quantity\": 980032103640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "c2dfcf545bf405c4de3c90d4f46459e8bb2101253700c32b5f60b5fe61ec0dd3",
+		"input_utxos" : "[{\"address\": \"addr1q8fc2uuwuq79cdnsf5umfrtr46eat90nz72wtnm4arju4k8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqcmtwuf\", \"tx_hash\": \"c217ac57f9d1b3dccb14c4967b6749fb3d6e71480ce9a718f839fff4916e103a\", \"quantity\": 980032303640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q9qjrsf78fr9y4u2m4z093gw86jn3f64t8l7awdehncylqst9lv5s2ttng8f4dyq67uus5w2xcl0hknnyftxmnkqu55qxe4fkz\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1qyf4gk952e8tyjtvtyzuhg576qmk39ld9aa644ewwpddaw8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq2mper3\", \"quantity\": 980032203640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "c217ac57f9d1b3dccb14c4967b6749fb3d6e71480ce9a718f839fff4916e103a",
+		"input_utxos" : "[{\"address\": \"addr1q8fnzjwppqazq6q0fggzytr0g9kwd2akvff346l2dn8ncnhledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqvpymxf\", \"tx_hash\": \"b3b3b7e9999e78fddf97075af6a303dfb4ab1bcca8fa2b2d0106a4af7516d6d3\", \"quantity\": 980032403640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q9ynkldtax4hpv0ggg7pkp7m66pchcv2hl80txwdnry6kfjf8d76h6dtwzc7ss3urvrah45r30sc407w7kvumxxf4vnqvhq7y5\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1q8fc2uuwuq79cdnsf5umfrtr46eat90nz72wtnm4arju4k8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqcmtwuf\", \"quantity\": 980032303640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "b3b3b7e9999e78fddf97075af6a303dfb4ab1bcca8fa2b2d0106a4af7516d6d3",
+		"input_utxos" : "[{\"address\": \"addr1q9rqj7yf6mtwe0e2mcynsjjvndp80t82lu3s72hn3fgx76hledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqkfssn5\", \"tx_hash\": \"b08ca65fced05b505cd0dd90077564403082961235b62ba22dddd61573c9b8b2\", \"quantity\": 980032503640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q9v3ww25tec4s2gzpglfpc0d34cfjnn8swhcpvler5t0xu30s4dpfufyvz7gdqusv2cjhjkfgju67zqy39l2rw8anhzqyjhfxh\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1q8fnzjwppqazq6q0fggzytr0g9kwd2akvff346l2dn8ncnhledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqvpymxf\", \"quantity\": 980032403640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "b08ca65fced05b505cd0dd90077564403082961235b62ba22dddd61573c9b8b2",
+		"input_utxos" : "[{\"address\": \"addr1q938fs36apqechypp5hhdwneqvh9vrrqppylxvxn5af998lledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqrsh03q\", \"tx_hash\": \"393223530a960ced3307e53170db0603f022f306470275ffd4b343e61301e778\", \"quantity\": 980032513640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q9z3rh3k7546a084vvee0xevsmf77fjtfeaqhzucuqfrdg29z80rdaft46702cenj7djepknaunyknn6pw9e3cqjx6ssyc3sy7\", \"quantity\": 10000000, \"tx_index\": 0}, {\"address\": \"addr1q9rqj7yf6mtwe0e2mcynsjjvndp80t82lu3s72hn3fgx76hledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqkfssn5\", \"quantity\": 980032503640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "393223530a960ced3307e53170db0603f022f306470275ffd4b343e61301e778",
+		"input_utxos" : "[{\"address\": \"addr1qyn483nm5p8cu968wck72nnyltctxwyrmq36aw5ew3l2vg8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqe4gld5\", \"tx_hash\": \"4166b3e944d26448f804edc5dbff294f2c3deb946b80537dc8241bbb47587fce\", \"quantity\": 980032613640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1q8nrdx6sukqwatkv7x8y0csl0x2l0rek9cmc04n5z35anxphyemygs8dxvfe432u6xcrt89d968u478w6s0cu8x7thrsng2ztx\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1q938fs36apqechypp5hhdwneqvh9vrrqppylxvxn5af998lledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqrsh03q\", \"quantity\": 980032513640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "4166b3e944d26448f804edc5dbff294f2c3deb946b80537dc8241bbb47587fce",
+		"input_utxos" : "[{\"address\": \"addr1qyc7qq4ppdrmj8ahflwq5qve04phyu86ffrrvehqpd2h9rlledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqypxt4a\", \"tx_hash\": \"5c3bc72e646ac8aa80660acf71e00d45c2518053ff5af320afca67feec0dad36\", \"quantity\": 980032713640000, \"tx_index\": 1}]",
+		"output_utxos" : "[{\"address\": \"addr1vxjhmhc40pghtxgwpdfsdakpmzchtsvghssdyrqw4qs5g8gu7z5jm\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1qyn483nm5p8cu968wck72nnyltctxwyrmq36aw5ew3l2vg8ledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqe4gld5\", \"quantity\": 980032613640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "5c3bc72e646ac8aa80660acf71e00d45c2518053ff5af320afca67feec0dad36",
+		"input_utxos" : "[{\"address\": \"addr1qy92vsgra9hpwatnc8x29w4prkrla9s8s9awxhtd75mqu6lledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq608rcf\", \"tx_hash\": \"7a906cde274e3cbdc7e78945b8c0b46bedeb22bba83c40424ebe6d84f546986c\", \"quantity\": 980032813640000, \"tx_index\": 12}]",
+		"output_utxos" : "[{\"address\": \"addr1q9l8lsqv7r0s0lp5s98cx6yarn2cuh4vtmchyum3p94px94tr6p8nc6ee4e3sdjuhqkjqem08ef3ly0ymkg2kcnu4drqcsaz5k\", \"quantity\": 100000000, \"tx_index\": 0}, {\"address\": \"addr1qyc7qq4ppdrmj8ahflwq5qve04phyu86ffrrvehqpd2h9rlledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlqypxt4a\", \"quantity\": 980032713640000, \"tx_index\": 1}]"
+	},
+	{
+		"tx_hash" : "7a906cde274e3cbdc7e78945b8c0b46bedeb22bba83c40424ebe6d84f546986c",
+		"input_utxos" : "[{\"address\": \"addr1wyrfrvh7ejs6cn6nedklkq9hqyl9v8glx3qrh9tuhdd0r7s0t5rk3\", \"tx_hash\": \"ce75b0e1e203c66d5dbce3b37865114163f577a58d3d12b0ae2593f8d3a64eb2\", \"quantity\": 24000000000000000, \"tx_index\": 0}]",
+		"output_utxos" : "[{\"address\": \"addr1wxgp2xvmvh0lrfdeu2q3jtqp2lprej6hjvgjx2u5lcwqxlqfvty7h\", \"quantity\": 4547399400634954, \"tx_index\": 0}, {\"address\": \"addr1w9m77uujyd6069nfdly22ejtslcdkf8w6z3f4603pzf42tqt6a398\", \"quantity\": 6000000000873988, \"tx_index\": 1}, {\"address\": \"addr1qxmz3l8y50rmqp3smjda5a8c3k3z0uk4xs65zr8v2ws09e72npy58ky0jqcc5s4y0anwfmjjfzezqkljtqddwwtphnts3qtgsm\", \"quantity\": 533782364690000, \"tx_index\": 2}, {\"address\": \"addr1q92c0vnsmkcn7vnc2whfz8u5runz76qs0l987jrs9ndjvqy4u7h70d5ljzmg6qjsa0q9xx2c7yuxmhkh587gkf53davq7zln59\", \"quantity\": 463194414070000, \"tx_index\": 3}, {\"address\": \"addr1q8uk0hmsgz2xya8hxdc5vx7meg7sh8xjuznhzkj0kvvfc954yxlrr32gugxw60489u469hzke2hx2ejwxnfdnj7m54zqakkurt\", \"quantity\": 446351799870000, \"tx_index\": 4}, {\"address\": \"addr1qxx5k89drkc3fye66kwepdukdazqjagx6wd9e59xezn89pv4yxlrr32gugxw60489u469hzke2hx2ejwxnfdnj7m54zqanwlyj\", \"quantity\": 415764571320000, \"tx_index\": 5}, {\"address\": \"addr1qynf5py55mftnjuc8kkffyz3jmgf39vhr2lxc57tgh8j8s54yxlrr32gugxw60489u469hzke2hx2ejwxnfdnj7m54zq3jydfu\", \"quantity\": 501313347430000, \"tx_index\": 6}, {\"address\": \"addr1qxc0t6q5httku8a325pqjmynyrqd33xk2l9f4yyvxjv32eu4yxlrr32gugxw60489u469hzke2hx2ejwxnfdnj7m54zqx65ct3\", \"quantity\": 529390466190000, \"tx_index\": 7}, {\"address\": \"addr1q8vf40lyqgywzlsg0v9hkccf8qaemj3lv592taakwe6l5054yxlrr32gugxw60489u469hzke2hx2ejwxnfdnj7m54zqllma3f\", \"quantity\": 508756038030000, \"tx_index\": 8}, {\"address\": \"addr1q9a88d86g8vn73fku89t6knd68twhk8znp4t8gagkjy6r854yxlrr32gugxw60489u469hzke2hx2ejwxnfdnj7m54zqvs9njl\", \"quantity\": 531223397920000, \"tx_index\": 9}, {\"address\": \"addr1qxugps685x40wx09u5tec6qp85ux6wake964hrc5d6eurlu4yxlrr32gugxw60489u469hzke2hx2ejwxnfdnj7m54zq35wu7j\", \"quantity\": 429100377110000, \"tx_index\": 10}, {\"address\": \"addr1qxeuag80cl5rfx5yxrjyhj6nhz599jtcsqsrpe52m3724ty4yxlrr32gugxw60489u469hzke2hx2ejwxnfdnj7m54zqzel6t3\", \"quantity\": 441123223360000, \"tx_index\": 11}, {\"address\": \"addr1qy92vsgra9hpwatnc8x29w4prkrla9s8s9awxhtd75mqu6lledeczpq4dap894u9ne785cxphchzhnuulk03wlxcwhlq608rcf\", \"quantity\": 980032813640000, \"tx_index\": 12}, {\"address\": \"addr1q9er8vp44ntgk4g84yymdygmztqz5yxp9sqt65as6va44hqssd8lz98gc8frxupvujlayc0jhmzvy2jf77ycjtfec9yszrquhu\", \"quantity\": 889829960870000, \"tx_index\": 13}, {\"address\": \"addr1q9h2wzhswqvx8ul6lvny7ymhgjx978avycuj9p38pt3scxwxmf2xxuef400pk08r9y8sls8p6wr8t2ap90vdmqh7fa6s6hq86p\", \"quantity\": 988395534150000, \"tx_index\": 14}, {\"address\": \"addr1q8gm43m4x0avkvkxwhn99p74jde3rq03ek7jd9dd57n0gwh687fq5dpdlny4j9asmmyrw3tk2cgakq4uw3x6vj8yzvqqcqee8m\", \"quantity\": 801741691350000, \"tx_index\": 15}, {\"address\": \"addr1qx5vruvrm9708ge5p74pv22w8eglpflypptm92xfdzepvrnyuzet687wvt9y2vte6xzyyd06tve3h452tk43d2hdgm6qazg88j\", \"quantity\": 1179365294770000, \"tx_index\": 16}, {\"address\": \"addr1qyelpa7an79qr7z9uw506vs56qhgsfr8eq7f5ruguuhfgsvsrrrehtfu7m7ql049e5qnaep75yv0ml527fujmy7xgpcs42cvyc\", \"quantity\": 1196131119880000, \"tx_index\": 17}, {\"address\": \"addr1q9n95zkx4w4l77t8szwvnsn6h6ny4khcl30m4xy7f8v49p74qne3dqwqmnejaa55wzwvkamlux2w23xcumda5ne5t2fsadgxjv\", \"quantity\": 1224503585350000, \"tx_index\": 18}, {\"address\": \"addr1w9m77uujyd6069nfdly22ejtslcdkf8w6z3f4603pzf42tqt6a398\", \"quantity\": 1392600598491058, \"tx_index\": 19}]"
+	},
+	{
+		"tx_hash" : "ce75b0e1e203c66d5dbce3b37865114163f577a58d3d12b0ae2593f8d3a64eb2",
+		"input_utxos" : "[]",
+		"output_utxos" : "[{\"address\": \"addr1wyrfrvh7ejs6cn6nedklkq9hqyl9v8glx3qrh9tuhdd0r7s0t5rk3\", \"quantity\": 24000000000000000, \"tx_index\": 0}]"
+	}
+]}
