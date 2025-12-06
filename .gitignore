@@ -1,2 +1,4 @@
 /out
 .env
+.venv
+__pycache__

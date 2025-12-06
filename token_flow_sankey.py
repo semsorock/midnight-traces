@@ -335,17 +335,27 @@ def validate_date(date_str: str) -> bool:
         return False
 
 
-def main():
-    args = parse_args()
+def generate_sankey(target_date: str) -> dict | None:
+    """
+    Generate a Sankey diagram for the given date.
     
-    # Determine target date
-    if args.date:
-        if not validate_date(args.date):
-            print(f"Error: Invalid date format '{args.date}'. Please use YYYY-MM-DD format.")
-            return
-        target_date = args.date
-    else:
-        target_date = get_default_date()
+    This is the main entry point for the pipeline. It loads transactions from
+    the database, extracts flows, and generates the visualization.
+    
+    Args:
+        target_date: Date in YYYY-MM-DD format (UTC)
+        
+    Returns:
+        Dictionary with:
+            - path: Path to generated PNG file
+            - transaction_count: Number of transactions
+            - unique_addresses: Number of unique addresses
+            - flow_count: Number of aggregated flows
+        Or None if no transactions found
+    """
+    if not validate_date(target_date):
+        print(f"Error: Invalid date format '{target_date}'. Please use YYYY-MM-DD format.")
+        return None
     
     print(f"Generating Sankey diagram for date: {target_date} (UTC)")
     
@@ -358,8 +368,8 @@ def main():
     print(f"Loaded {len(transactions)} transactions")
     
     if not transactions:
-        print(f"No transactions found for {target_date}. Exiting.")
-        return
+        print(f"No transactions found for {target_date}.")
+        return None
     
     # Extract flows
     flows = extract_flows(transactions)
@@ -370,9 +380,14 @@ def main():
     print(f"Aggregated to {len(aggregated_flows)} unique address pairs")
     
     # No filtering - include all flows regardless of size
-    # Previously we filtered small flows, but this excluded important small transfers
     filtered_flows = aggregated_flows
     print(f"Including all {len(filtered_flows)} flows (no filtering)")
+    
+    # Count unique addresses
+    unique_addresses = set()
+    for (source, target), _ in aggregated_flows.items():
+        unique_addresses.add(source)
+        unique_addresses.add(target)
     
     # Create the Sankey diagram
     fig = create_vertical_sankey(
@@ -395,7 +410,31 @@ def main():
     print("\nTop 10 largest flows:")
     for (source, target), flow_data in sorted_flows[:10]:
         print(f"  {shorten_address(source)} → {shorten_address(target)}: {format_quantity(flow_data['quantity'])} ({len(flow_data['tx_hashes'])} txs)")
+    
+    return {
+        'path': output_png,
+        'transaction_count': len(transactions),
+        'unique_addresses': len(unique_addresses),
+        'flow_count': len(aggregated_flows)
+    }
+
+
+def main():
+    args = parse_args()
+    
+    # Determine target date
+    if args.date:
+        target_date = args.date
+    else:
+        target_date = get_default_date()
+    
+    result = generate_sankey(target_date)
+    if not result:
+        print("Failed to generate Sankey diagram.")
+    else:
+        print(f"\nStats: {result['transaction_count']} txs, {result['unique_addresses']} addresses, {result['flow_count']} flows")
 
 
 if __name__ == "__main__":
     main()
+

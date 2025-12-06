@@ -16,13 +16,30 @@ from PIL import Image
 load_dotenv()
 
 
-def style_sankey_diagram():
-    """Load the Sankey diagram and apply futuristic styling via Gemini API."""
+def style_sankey_diagram(target_date: str | None = None) -> str | None:
+    """
+    Load the Sankey diagram and apply futuristic styling via Gemini API.
+    
+    Args:
+        target_date: Date in YYYY-MM-DD format. If None, uses generic naming.
+        
+    Returns:
+        Path to styled image, or None if generation failed.
+    """
     
     # Setup paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    input_path = os.path.join(script_dir, 'out', 'token_flow_sankey.png')
-    output_path = os.path.join(script_dir, 'out', 'token_flow_sankey_styled.png')
+    if target_date:
+        input_path = os.path.join(script_dir, 'out', f'token_flow_sankey_{target_date}.png')
+        output_path = os.path.join(script_dir, 'out', f'token_flow_sankey_styled_{target_date}.png')
+    else:
+        input_path = os.path.join(script_dir, 'out', 'token_flow_sankey.png')
+        output_path = os.path.join(script_dir, 'out', 'token_flow_sankey_styled.png')
+    
+    # Verify input exists
+    if not os.path.exists(input_path):
+        print(f"Error: Source image not found: {input_path}")
+        return None
     
     # Load the source image
     print(f"Loading source image: {input_path}")
@@ -79,8 +96,30 @@ def style_sankey_diagram():
 
 
 if __name__ == "__main__":
-    result = style_sankey_diagram()
+    import argparse
+    from datetime import datetime, timedelta, timezone
+    
+    def get_default_date() -> str:
+        """Get yesterday's date in UTC as YYYY-MM-DD string."""
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        return yesterday.strftime('%Y-%m-%d')
+    
+    parser = argparse.ArgumentParser(
+        description='Apply Gemini styling to a Sankey diagram.'
+    )
+    parser.add_argument(
+        '--date',
+        type=str,
+        default=None,
+        help='Target date in YYYY-MM-DD format (UTC). Defaults to yesterday.'
+    )
+    args = parser.parse_args()
+    
+    target_date = args.date or get_default_date()
+    result = style_sankey_diagram(target_date)
+    
     if result:
         print(f"\nSuccess! Open {result} to view the styled diagram.")
     else:
         print("\nFailed to generate styled image.")
+
