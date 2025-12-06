@@ -163,6 +163,8 @@ Examples:
     python pipeline.py                    # Uses yesterday's date (UTC)
     python pipeline.py --date 2025-12-05  # Uses specified date
     python pipeline.py --skip-styling     # Skip Gemini styling step
+    python pipeline.py --post-twitter     # Enable Twitter posting
+    python pipeline.py --check-ready      # Check if all credentials are configured
         """
     )
     parser.add_argument(
@@ -177,16 +179,94 @@ Examples:
         help='Skip the Gemini image styling step.'
     )
     parser.add_argument(
-        '--skip-twitter',
+        '--post-twitter',
         action='store_true',
-        default=True,
-        help='Skip posting to Twitter (default: True until implemented).'
+        default=False,
+        help='Enable posting to Twitter (default: disabled).'
+    )
+    parser.add_argument(
+        '--check-ready',
+        action='store_true',
+        help='Check if all credentials are configured and exit.'
     )
     return parser.parse_args()
 
 
+def check_ready() -> bool:
+    """
+    Check if all required credentials are configured.
+    
+    Returns:
+        True if all credentials are ready, False otherwise.
+    """
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    print("\n🔍 Checking pipeline readiness...\n")
+    
+    all_ready = True
+    
+    # Check Gemini API
+    print("📦 Gemini API (for image styling):")
+    gemini_key = os.environ.get("GOOGLE_API_KEY")
+    if gemini_key:
+        print(f"   ✓ GOOGLE_API_KEY is set ({gemini_key[:8]}...)")
+    else:
+        print("   ✗ GOOGLE_API_KEY is NOT set")
+        all_ready = False
+    
+    # Check Twitter API
+    print("\n🐦 Twitter API (for posting):")
+    twitter_vars = {
+        'TWITTER_API_KEY': 'API Key',
+        'TWITTER_API_SECRET': 'API Secret',
+        'TWITTER_ACCESS_TOKEN': 'Access Token',
+        'TWITTER_ACCESS_SECRET': 'Access Secret',
+    }
+    
+    for var, name in twitter_vars.items():
+        value = os.environ.get(var)
+        if value:
+            print(f"   ✓ {var} is set ({value[:8]}...)")
+        else:
+            print(f"   ✗ {var} is NOT set")
+            all_ready = False
+    
+    # Check database connection
+    print("\n📊 Database (for transaction data):")
+    try:
+        from token_flow_sankey import DB_CONNECTION_STRING
+        if DB_CONNECTION_STRING:
+            print(f"   ✓ DB_CONNECTION_STRING is configured")
+        else:
+            print("   ✗ DB_CONNECTION_STRING is NOT set")
+            all_ready = False
+    except Exception as e:
+        print(f"   ✗ Error checking database config: {e}")
+        all_ready = False
+    
+    # Summary
+    print("\n" + "="*50)
+    if all_ready:
+        print("✅ All credentials configured! Ready to run.")
+        print("\nTo post to Twitter, run:")
+        print("  python pipeline.py --post-twitter")
+    else:
+        print("❌ Some credentials are missing. Check your .env file.")
+        print("\nSee .env.example for required variables.")
+    print("="*50 + "\n")
+    
+    return all_ready
+
+
 def main():
     args = parse_args()
+    
+    # Check ready mode
+    if args.check_ready:
+        check_ready()
+        return
     
     # Determine target date
     if args.date:
@@ -197,11 +277,18 @@ def main():
     else:
         target_date = get_default_date()
     
+    # If posting to Twitter, verify credentials first
+    if args.post_twitter:
+        from twitter import get_twitter_credentials
+        if not get_twitter_credentials():
+            print("\nRun 'python pipeline.py --check-ready' to see all missing credentials.")
+            sys.exit(1)
+    
     # Run the pipeline
     result = run_pipeline(
         target_date=target_date,
         skip_styling=args.skip_styling,
-        skip_twitter=args.skip_twitter
+        skip_twitter=not args.post_twitter  # Invert: --post-twitter means don't skip
     )
     
     # Exit with error code if there were failures
@@ -211,3 +298,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
