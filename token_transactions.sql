@@ -1,4 +1,4 @@
--- Query to select last 100 transactions involving a specific token fingerprint
+-- Query to select transactions involving a specific token fingerprint for a specific date (UTC)
 -- Returns tx_hash, input_utxos (filtering for the token), and output_utxos (filtering for the token)
 
 WITH target_asset AS (
@@ -6,8 +6,12 @@ WITH target_asset AS (
     FROM multi_asset 
     WHERE fingerprint = 'asset1wd3llgkhsw6etxf2yca6cgk9ssrpva3wf0pq9a' 
 ),
+-- Set your target date here (in UTC)
+target_date AS (
+    SELECT '2025-12-06'::date AS filter_date
+),
 relevant_tx_ids AS (
-    SELECT DISTINCT tx_id
+    SELECT DISTINCT involved_txs.tx_id
     FROM (
         -- Transactions where the token is in an output
         SELECT tx_out.tx_id
@@ -24,8 +28,13 @@ relevant_tx_ids AS (
         JOIN ma_tx_out ON ma_tx_out.tx_out_id = tx_out.id
         JOIN target_asset ON ma_tx_out.ident = target_asset.id
     ) AS involved_txs
-    ORDER BY tx_id DESC
-    LIMIT 100
+    -- Join with tx and block to filter by date
+    JOIN tx ON tx.id = involved_txs.tx_id
+    JOIN block ON block.id = tx.block_id
+    CROSS JOIN target_date
+    WHERE block.time AT TIME ZONE 'UTC' >= target_date.filter_date
+      AND block.time AT TIME ZONE 'UTC' < target_date.filter_date + INTERVAL '1 day'
+    ORDER BY involved_txs.tx_id DESC
 ),
 -- Fetch input UTXOs containing the token for these transactions
 relevant_inputs AS (

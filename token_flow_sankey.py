@@ -3,24 +3,71 @@
 Token Flow Sankey Diagram Generator
 
 Generates a vertical Sankey diagram showing token movement between addresses
-based on transaction data from a JSON file.
+based on transaction data from PostgreSQL database.
+
+Usage:
+    python token_flow_sankey.py                    # Uses yesterday's date (UTC)
+    python token_flow_sankey.py --date 2025-12-05  # Uses specified date
 """
 
+import argparse
 import json
+import os
+import re
+import psycopg2
 import plotly.graph_objects as go
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+
+# Database connection string
+DB_CONNECTION_STRING = "postgresql://dbsync10jarkq839ywtvh742nc:UbZEUkHLxSQ@cardano-mainnet.dbsync-v3.demeter.run:5432/dbsync-mainnet"
 
 
-def load_transactions(json_file: str) -> list:
-    """Load and parse the token transactions from JSON file."""
-    with open(json_file, 'r') as f:
-        data = json.load(f)
+def load_transactions_from_db(sql_file: str, target_date: str) -> list:
+    """
+    Load and parse the token transactions from PostgreSQL database.
     
-    # The JSON has a query string as the first key, get the transaction list
-    for key, value in data.items():
-        if isinstance(value, list):
-            return value
-    return []
+    Args:
+        sql_file: Path to the SQL query file
+        target_date: Date string in YYYY-MM-DD format (UTC)
+    """
+    # Read the SQL query from file
+    with open(sql_file, 'r') as f:
+        sql_query = f.read()
+    
+    # Replace the hardcoded date in the SQL with the target date
+    # Matches pattern like: SELECT '2025-12-06'::date AS filter_date
+    sql_query = re.sub(
+        r"SELECT\s+'\d{4}-\d{2}-\d{2}'::date\s+AS\s+filter_date",
+        f"SELECT '{target_date}'::date AS filter_date",
+        sql_query
+    )
+    
+    # Connect to the database and execute query
+    conn = psycopg2.connect(DB_CONNECTION_STRING)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql_query)
+        
+        # Fetch column names
+        columns = [desc[0] for desc in cursor.description]
+        
+        # Fetch all rows and convert to list of dicts
+        transactions = []
+        for row in cursor.fetchall():
+            tx = {}
+            for i, col in enumerate(columns):
+                value = row[i]
+                # Convert JSONB fields to JSON strings for compatibility with existing parse_utxos function
+                if col in ('input_utxos', 'output_utxos'):
+                    tx[col] = json.dumps(value) if value else '[]'
+                else:
+                    tx[col] = value
+            transactions.append(tx)
+        
+        return transactions
+    finally:
+        conn.close()
 
 
 def shorten_address(address: str) -> str:
@@ -230,7 +277,7 @@ def create_vertical_sankey(flows: dict, title: str = "Token Movement Flow") -> g
         paper_bgcolor='rgba(248, 248, 255, 1)',
         plot_bgcolor='rgba(248, 248, 255, 1)',
         height=1200,
-        width=1800,
+        width=1200,
         margin=dict(t=80, l=50, r=50, b=50)
     )
     
@@ -253,16 +300,66 @@ def format_quantity(qty: float) -> str:
         return f"{qty:.0f}"
 
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Generate a Sankey diagram of token flows for a specific date.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    python token_flow_sankey.py                    # Uses yesterday's date (UTC)
+    python token_flow_sankey.py --date 2025-12-05  # Uses specified date
+        """
+    )
+    parser.add_argument(
+        '--date',
+        type=str,
+        default=None,
+        help='Target date in YYYY-MM-DD format (UTC). Defaults to yesterday if not provided.'
+    )
+    return parser.parse_args()
+
+
+def get_default_date() -> str:
+    """Get yesterday's date in UTC as YYYY-MM-DD string."""
+    yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+    return yesterday.strftime('%Y-%m-%d')
+
+
+def validate_date(date_str: str) -> bool:
+    """Validate that a date string is in YYYY-MM-DD format."""
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+        return True
+    except ValueError:
+        return False
+
+
 def main():
-    import os
+    args = parse_args()
     
-    # Path to JSON file
+    # Determine target date
+    if args.date:
+        if not validate_date(args.date):
+            print(f"Error: Invalid date format '{args.date}'. Please use YYYY-MM-DD format.")
+            return
+        target_date = args.date
+    else:
+        target_date = get_default_date()
+    
+    print(f"Generating Sankey diagram for date: {target_date} (UTC)")
+    
+    # Path to SQL file
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    json_file = os.path.join(script_dir, 'token_transactions_reslut.json')
+    sql_file = os.path.join(script_dir, 'token_transactions.sql')
     
-    print(f"Loading transactions from: {json_file}")
-    transactions = load_transactions(json_file)
+    print(f"Querying database using: {sql_file}")
+    transactions = load_transactions_from_db(sql_file, target_date)
     print(f"Loaded {len(transactions)} transactions")
+    
+    if not transactions:
+        print(f"No transactions found for {target_date}. Exiting.")
+        return
     
     # Extract flows
     flows = extract_flows(transactions)
@@ -287,8 +384,8 @@ def main():
     out_dir = os.path.join(script_dir, 'out')
     os.makedirs(out_dir, exist_ok=True)
     
-    # Save as PNG image
-    output_png = os.path.join(out_dir, 'token_flow_sankey.png')
+    # Save as PNG image with date in filename
+    output_png = os.path.join(out_dir, f'token_flow_sankey_{target_date}.png')
     fig.write_image(output_png, scale=2)
     print(f"Diagram saved to: {output_png}")
     
