@@ -22,14 +22,22 @@ from datetime import datetime, timedelta, timezone
 # Database connection string
 DB_CONNECTION_STRING = "postgresql://dbsync10jarkq839ywtvh742nc:UbZEUkHLxSQ@cardano-mainnet.dbsync-v3.demeter.run:5432/dbsync-mainnet"
 
+# Token decimal places (raw amounts from DB are integers with 6 decimals encoded)
+# e.g., 1_000_000_000 raw = 1000.000000 actual NIGHT tokens
+TOKEN_DECIMALS = 6
 
-def load_transactions_from_db(sql_file: str, target_date: str) -> list:
+# Maximum number of transactions to fetch from DB for visualization
+MAX_TX_COUNT_DEFAULT = 100
+
+
+def load_transactions_from_db(sql_file: str, target_date: str, max_tx_count: int = MAX_TX_COUNT_DEFAULT) -> list:
     """
     Load and parse the token transactions from PostgreSQL database.
     
     Args:
         sql_file: Path to the SQL query file
         target_date: Date string in YYYY-MM-DD format (UTC)
+        max_tx_count: Maximum number of transactions to fetch (Top N by volume)
     """
     # Read the SQL query from file
     with open(sql_file, 'r') as f:
@@ -40,6 +48,14 @@ def load_transactions_from_db(sql_file: str, target_date: str) -> list:
     sql_query = re.sub(
         r"SELECT\s+'\d{4}-\d{2}-\d{2}'::date\s+AS\s+filter_date",
         f"SELECT '{target_date}'::date AS filter_date",
+        sql_query
+    )
+    
+    # Replace LIMIT clause
+    # Matches pattern like: LIMIT 100
+    sql_query = re.sub(
+        r"LIMIT\s+\d+",
+        f"LIMIT {max_tx_count}",
         sql_query
     )
     
@@ -130,10 +146,56 @@ def extract_flows(transactions: list) -> list:
     return flows
 
 
+def load_stats_from_db(sql_file: str, target_date: str) -> dict:
+    """
+    Load daily statistics from PostgreSQL database.
+    
+    Args:
+        sql_file: Path to the SQL query file for stats
+        target_date: Date string in YYYY-MM-DD format (UTC)
+        
+    Returns:
+        Dictionary with keys: transaction_count, unique_addresses, total_volume
+    """
+    # Read the SQL query from file
+    with open(sql_file, 'r') as f:
+        sql_query = f.read()
+    
+    # Replace the hardcoded date in the SQL with the target date
+    sql_query = re.sub(
+        r"SELECT\s+'\d{4}-\d{2}-\d{2}'::date\s+AS\s+filter_date",
+        f"SELECT '{target_date}'::date AS filter_date",
+        sql_query
+    )
+    
+    # Connect to the database and execute query
+    conn = psycopg2.connect(DB_CONNECTION_STRING)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql_query)
+        
+        row = cursor.fetchone()
+        if row:
+            columns = [desc[0] for desc in cursor.description]
+            return dict(zip(columns, row))
+        return {
+            'transaction_count': 0,
+            'unique_addresses': 0,
+            'total_volume': 0
+        }
+    finally:
+        conn.close()
+
+
 def aggregate_flows(flows: list) -> dict:
     """Aggregate flows between same source-target pairs, collecting tx hashes."""
     aggregated = defaultdict(lambda: {'quantity': 0, 'tx_hashes': set()})
     for source, target, quantity, tx_hash in flows:
+        # Skip self-loops (e.g. change returning to same address)
+        # These distort the Sankey visualization (look like big circles)
+        if source == target:
+            continue
+            
         aggregated[(source, target)]['quantity'] += quantity
         aggregated[(source, target)]['tx_hashes'].add(tx_hash)
     return aggregated
@@ -309,6 +371,7 @@ def parse_args():
 Examples:
     python token_flow_sankey.py                    # Uses yesterday's date (UTC)
     python token_flow_sankey.py --date 2025-12-05  # Uses specified date
+    python token_flow_sankey.py --max-flows 50     # Show only top 50 flows
         """
     )
     parser.add_argument(
@@ -316,6 +379,12 @@ Examples:
         type=str,
         default=None,
         help='Target date in YYYY-MM-DD format (UTC). Defaults to yesterday if not provided.'
+    )
+    parser.add_argument(
+        '--max-tx-count',
+        type=int,
+        default=MAX_TX_COUNT_DEFAULT,
+        help=f'Maximum number of top transactions to visualize (default: {MAX_TX_COUNT_DEFAULT}).'
     )
     return parser.parse_args()
 
@@ -335,7 +404,7 @@ def validate_date(date_str: str) -> bool:
         return False
 
 
-def generate_sankey(target_date: str) -> dict | None:
+def generate_sankey(target_date: str, max_tx_count: int = MAX_TX_COUNT_DEFAULT) -> dict | None:
     """
     Generate a Sankey diagram for the given date.
     
@@ -344,6 +413,7 @@ def generate_sankey(target_date: str) -> dict | None:
     
     Args:
         target_date: Date in YYYY-MM-DD format (UTC)
+        max_tx_count: Maximum number of transactions to fetch from DB
         
     Returns:
         Dictionary with:
@@ -351,6 +421,7 @@ def generate_sankey(target_date: str) -> dict | None:
             - transaction_count: Number of transactions
             - unique_addresses: Number of unique addresses
             - flow_count: Number of aggregated flows
+            - total_tokens_moved: Total tokens moved (actual amount, not raw)
         Or None if no transactions found
     """
     if not validate_date(target_date):
@@ -359,13 +430,25 @@ def generate_sankey(target_date: str) -> dict | None:
     
     print(f"Generating Sankey diagram for date: {target_date} (UTC)")
     
-    # Path to SQL file
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    sql_file = os.path.join(script_dir, 'token_transactions.sql')
     
-    print(f"Querying database using: {sql_file}")
-    transactions = load_transactions_from_db(sql_file, target_date)
-    print(f"Loaded {len(transactions)} transactions")
+    # 1. Load Global Stats (The "Truth")
+    stats_sql_file = os.path.join(script_dir, 'daily_token_stats.sql')
+    print(f"Querying stats using: {stats_sql_file}")
+    daily_stats = load_stats_from_db(stats_sql_file, target_date)
+    
+    total_tokens_moved_raw = daily_stats.get('total_volume', 0)
+    total_tokens_moved = float(total_tokens_moved_raw) / (10 ** TOKEN_DECIMALS)
+    
+    print(f"Daily Stats: {daily_stats.get('transaction_count')} txs, "
+          f"{daily_stats.get('unique_addresses')} addresses, "
+          f"{format_quantity(total_tokens_moved)} $NIGHT moved")
+
+    # 2. Load Top Transactions for Visualization
+    tx_sql_file = os.path.join(script_dir, 'token_transactions.sql')
+    print(f"Querying top transactions using: {tx_sql_file} (LIMIT {max_tx_count})")
+    transactions = load_transactions_from_db(tx_sql_file, target_date, max_tx_count)
+    print(f"Loaded {len(transactions)} top transactions for visualization")
     
     if not transactions:
         print(f"No transactions found for {target_date}.")
@@ -373,23 +456,20 @@ def generate_sankey(target_date: str) -> dict | None:
     
     # Extract flows
     flows = extract_flows(transactions)
-    print(f"Extracted {len(flows)} individual flows")
+    print(f"Extracted {len(flows)} individual flows from top transactions")
     
     # Aggregate flows between same address pairs
     aggregated_flows = aggregate_flows(flows)
     print(f"Aggregated to {len(aggregated_flows)} unique address pairs")
     
-    # No filtering - include all flows regardless of size
-    filtered_flows = aggregated_flows
-    print(f"Including all {len(filtered_flows)} flows (no filtering)")
+    # Filter to top flows by quantity for visualization only
+    # Note: We now control the volume via SQL LIMIT (max_tx_count). 
+    # We show all flows resulting from those top transactions.
+    sorted_flows_list = sorted(aggregated_flows.items(), key=lambda x: x[1]['quantity'], reverse=True)
+    filtered_flows = dict(sorted_flows_list)
+    print(f"Including all {len(aggregated_flows)} flows derived from top {len(transactions)} transactions")
     
-    # Count unique addresses
-    unique_addresses = set()
-    for (source, target), _ in aggregated_flows.items():
-        unique_addresses.add(source)
-        unique_addresses.add(target)
-    
-    # Create the Sankey diagram
+    # Create the Sankey diagram with filtered flows
     fig = create_vertical_sankey(
         filtered_flows,
         title=""
@@ -405,7 +485,7 @@ def generate_sankey(target_date: str) -> dict | None:
     print(f"Diagram saved to: {output_png}")
     
     # Print summary statistics
-    print("\n--- Flow Summary ---")
+    print("\n--- Flow Summary (Visualized) ---")
     sorted_flows = sorted(aggregated_flows.items(), key=lambda x: x[1]['quantity'], reverse=True)
     print("\nTop 10 largest flows:")
     for (source, target), flow_data in sorted_flows[:10]:
@@ -413,9 +493,10 @@ def generate_sankey(target_date: str) -> dict | None:
     
     return {
         'path': output_png,
-        'transaction_count': len(transactions),
-        'unique_addresses': len(unique_addresses),
-        'flow_count': len(aggregated_flows)
+        'transaction_count': daily_stats.get('transaction_count', 0),
+        'unique_addresses': daily_stats.get('unique_addresses', 0),
+        'flow_count': len(aggregated_flows), 
+        'total_tokens_moved': total_tokens_moved
     }
 
 
@@ -428,7 +509,7 @@ def main():
     else:
         target_date = get_default_date()
     
-    result = generate_sankey(target_date)
+    result = generate_sankey(target_date, max_tx_count=args.max_tx_count)
     if not result:
         print("Failed to generate Sankey diagram.")
     else:

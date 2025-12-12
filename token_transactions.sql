@@ -11,18 +11,28 @@ target_date AS (
     SELECT '2025-12-06'::date AS filter_date
 ),
 relevant_tx_ids AS (
-    SELECT DISTINCT involved_txs.tx_id
+    -- Calculate total token volume for each transaction to find the largest ones
+    SELECT involved_txs.tx_id
     FROM (
         -- Transactions where the token is in an output
-        SELECT tx_out.tx_id
+        SELECT tx_out.tx_id, SUM(ma_tx_out.quantity) as volume
         FROM ma_tx_out
         JOIN tx_out ON tx_out.id = ma_tx_out.tx_out_id
         JOIN target_asset ON ma_tx_out.ident = target_asset.id
+        GROUP BY tx_out.tx_id
         
         UNION ALL
         
         -- Transactions where the token is in an input (spent)
-        SELECT tx_in.tx_in_id AS tx_id
+        -- Note: We optimize by prioritizing output volume for "biggest flows" typically
+        -- but for completeness we want big movements. 
+        -- If a tx only has inputs (burning?) or complex swaps, volume might be better measured 
+        -- by output volume of the token. If it's a consolidation, output volume is high.
+        -- If it's a split, output volume is high.
+        -- Let's stick to simple output volume for "size" of transfer for now as it's easier to aggregate.
+        -- But we need to include txs that might only burn tokens? 
+        -- For Sankey, we want flows. 
+        SELECT tx_in.tx_in_id AS tx_id, 0 as volume -- metrics are harder here without joining everything
         FROM tx_in
         JOIN tx_out ON tx_out.tx_id = tx_in.tx_out_id AND tx_out.index = tx_in.tx_out_index
         JOIN ma_tx_out ON ma_tx_out.tx_out_id = tx_out.id
@@ -34,7 +44,10 @@ relevant_tx_ids AS (
     CROSS JOIN target_date
     WHERE block.time AT TIME ZONE 'UTC' >= target_date.filter_date
       AND block.time AT TIME ZONE 'UTC' < target_date.filter_date + INTERVAL '1 day'
-    ORDER BY involved_txs.tx_id DESC
+    -- Aggregate volumes if a tx appeared in both parts (unlikely with this union structure but good practice)
+    GROUP BY involved_txs.tx_id
+    ORDER BY SUM(involved_txs.volume) DESC
+    LIMIT 100
 ),
 -- Fetch input UTXOs containing the token for these transactions
 relevant_inputs AS (

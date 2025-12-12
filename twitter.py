@@ -33,11 +33,31 @@ def format_date_display(date: str) -> str:
     return dt.strftime('%d %b %Y')
 
 
+def format_token_amount(amount: float) -> str:
+    """
+    Format token amount for display in tweet.
+    Uses human-readable suffixes (K, M, B, T, Q).
+    """
+    if amount >= 1e15:
+        return f"{amount/1e15:.2f}Q"
+    elif amount >= 1e12:
+        return f"{amount/1e12:.2f}T"
+    elif amount >= 1e9:
+        return f"{amount/1e9:.2f}B"
+    elif amount >= 1e6:
+        return f"{amount/1e6:.2f}M"
+    elif amount >= 1e3:
+        return f"{amount/1e3:.2f}K"
+    else:
+        return f"{amount:,.0f}"
+
+
 def generate_tweet_text(
     date: str,
     transaction_count: int,
     unique_addresses: int,
-    flow_count: int
+    flow_count: int,
+    total_tokens_moved: float = 0
 ) -> str:
     """
     Generate the tweet text for the daily NIGHT token flow post.
@@ -47,17 +67,20 @@ def generate_tweet_text(
         transaction_count: Number of transactions processed
         unique_addresses: Number of unique addresses involved
         flow_count: Number of token flows (traces)
+        total_tokens_moved: Total amount of tokens moved
         
     Returns:
         Tweet text with stats and hashtags
     """
     formatted_date = format_date_display(date)
+    tokens_display = format_token_amount(total_tokens_moved)
     
     return f"""The $NIGHT  traces for {formatted_date}
 
 - Transactions: {transaction_count:,}
 - Addresses: {unique_addresses:,}
 - Traces: {flow_count:,}
+- Total moved: {tokens_display} $NIGHT
 
 @MidnightNtwrk @midnightfdn #Cardano"""
 
@@ -90,7 +113,8 @@ def post_to_twitter(
     date: str,
     transaction_count: int = 0,
     unique_addresses: int = 0,
-    flow_count: int = 0
+    flow_count: int = 0,
+    total_tokens_moved: float = 0
 ) -> bool:
     """
     Post the styled Sankey diagram to Twitter/X.
@@ -101,6 +125,7 @@ def post_to_twitter(
         transaction_count: Number of transactions processed
         unique_addresses: Number of unique addresses involved
         flow_count: Number of token flows (traces)
+        total_tokens_moved: Total amount of tokens moved
         
     Returns:
         True if posted successfully, False otherwise
@@ -118,7 +143,7 @@ def post_to_twitter(
         return False
     
     # Generate tweet text with stats
-    tweet_text = generate_tweet_text(date, transaction_count, unique_addresses, flow_count)
+    tweet_text = generate_tweet_text(date, transaction_count, unique_addresses, flow_count, total_tokens_moved)
     
     try:
         # Initialize Twitter API v1.1 client (for media upload)
@@ -173,7 +198,7 @@ if __name__ == "__main__":
     print("Twitter module loaded successfully.")
     print(f"\nSample tweet text:")
     print("-" * 40)
-    print(generate_tweet_text(args.date, 85, 64, 76))
+    print(generate_tweet_text(args.date, 85, 64, 76, 1500000.50))
     print("-" * 40)
     
     # Check credentials
@@ -185,7 +210,7 @@ if __name__ == "__main__":
     # Test posting if requested
     if args.test_post and args.image:
         print(f"\nPosting test tweet with image: {args.image}")
-        success = post_to_twitter(args.image, args.date, 85, 64, 76)
+        success = post_to_twitter(args.image, args.date, 85, 64, 76, 1500000.50)
         if success:
             print("\n✓ Test post successful!")
         else:

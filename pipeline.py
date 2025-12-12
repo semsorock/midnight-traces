@@ -19,7 +19,7 @@ import argparse
 import sys
 from datetime import datetime, timedelta, timezone
 
-from token_flow_sankey import generate_sankey
+from token_flow_sankey import generate_sankey, MAX_TX_COUNT_DEFAULT
 from style_sankey_gemini import style_sankey_diagram
 from twitter import post_to_twitter
 
@@ -42,7 +42,8 @@ def validate_date(date_str: str) -> bool:
 def run_pipeline(
     target_date: str,
     skip_styling: bool = False,
-    skip_twitter: bool = True
+    skip_twitter: bool = True,
+    max_tx_count: int = MAX_TX_COUNT_DEFAULT
 ) -> dict:
     """
     Run the full Midnight Traces pipeline.
@@ -51,6 +52,7 @@ def run_pipeline(
         target_date: Date in YYYY-MM-DD format (UTC)
         skip_styling: If True, skip the Gemini styling step
         skip_twitter: If True, skip posting to Twitter (default True for now)
+        max_tx_count: Maximum number of top transactions to visualize
         
     Returns:
         Dictionary with paths to generated files and status
@@ -63,7 +65,8 @@ def run_pipeline(
         'stats': {
             'transaction_count': 0,
             'unique_addresses': 0,
-            'flow_count': 0
+            'flow_count': 0,
+            'total_tokens_moved': 0
         },
         'errors': []
     }
@@ -75,13 +78,14 @@ def run_pipeline(
     # Stage 1 & 2: Generate Sankey diagram (includes DB query)
     print("📊 Stage 1: Generating Sankey diagram...")
     try:
-        sankey_result = generate_sankey(target_date)
+        sankey_result = generate_sankey(target_date, max_tx_count=max_tx_count)
         if sankey_result:
             result['sankey_path'] = sankey_result['path']
             result['stats'] = {
                 'transaction_count': sankey_result['transaction_count'],
                 'unique_addresses': sankey_result['unique_addresses'],
-                'flow_count': sankey_result['flow_count']
+                'flow_count': sankey_result['flow_count'],
+                'total_tokens_moved': sankey_result['total_tokens_moved']
             }
             print(f"   ✓ Sankey diagram saved: {sankey_result['path']}")
         else:
@@ -112,25 +116,31 @@ def run_pipeline(
     
     # Stage 4: Post to Twitter
     if not skip_twitter:
-        print("\n🐦 Stage 3: Posting to Twitter...")
-        image_to_post = result['styled_path'] or result['sankey_path']
-        if image_to_post:
-            try:
-                posted = post_to_twitter(
-                    image_to_post,
-                    target_date,
-                    transaction_count=result['stats']['transaction_count'],
-                    unique_addresses=result['stats']['unique_addresses'],
-                    flow_count=result['stats']['flow_count']
-                )
-                result['twitter_posted'] = posted
-                if posted:
-                    print("   ✓ Posted to Twitter")
-                else:
-                    print("   ✗ Twitter posting not yet implemented")
-            except Exception as e:
-                result['errors'].append(f"Twitter posting failed: {e}")
-                print(f"   ✗ Error: {e}")
+        # Check if styling failed (requested but no result)
+        if not skip_styling and not result['styled_path']:
+            print("\n🐦 Stage 3: Aborting Twitter post because styling failed")
+            result['errors'].append("Aborted Twitter post due to styling failure")
+        else:
+            print("\n🐦 Stage 3: Posting to Twitter...")
+            image_to_post = result['styled_path'] or result['sankey_path']
+            if image_to_post:
+                try:
+                    posted = post_to_twitter(
+                        image_to_post,
+                        target_date,
+                        transaction_count=result['stats']['transaction_count'],
+                        unique_addresses=result['stats']['unique_addresses'],
+                        flow_count=result['stats']['flow_count'],
+                        total_tokens_moved=result['stats']['total_tokens_moved']
+                    )
+                    result['twitter_posted'] = posted
+                    if posted:
+                        print("   ✓ Posted to Twitter")
+                    else:
+                        print("   ✗ Twitter posting not yet implemented")
+                except Exception as e:
+                    result['errors'].append(f"Twitter posting failed: {e}")
+                    print(f"   ✗ Error: {e}")
     else:
         print("\n🐦 Stage 3: Skipping Twitter (--skip-twitter)")
     
@@ -143,7 +153,8 @@ def run_pipeline(
     if result['styled_path']:
         print(f"  🎨 Styled: {result['styled_path']}")
     stats = result['stats']
-    print(f"  📈 Stats: {stats['transaction_count']} txs, {stats['unique_addresses']} addresses, {stats['flow_count']} flows")
+    from token_flow_sankey import format_quantity
+    print(f"  📈 Stats: {stats['transaction_count']} txs, {stats['unique_addresses']} addresses, {stats['flow_count']} flows, {format_quantity(stats['total_tokens_moved'])} $NIGHT moved")
     if result['errors']:
         print(f"  ⚠️  Warnings: {len(result['errors'])}")
         for err in result['errors']:
@@ -188,6 +199,12 @@ Examples:
         '--check-ready',
         action='store_true',
         help='Check if all credentials are configured and exit.'
+    )
+    parser.add_argument(
+        '--max-tx-count',
+        type=int,
+        default=MAX_TX_COUNT_DEFAULT,
+        help=f'Maximum top transactions to visualize (default: {MAX_TX_COUNT_DEFAULT}).'
     )
     return parser.parse_args()
 
@@ -288,7 +305,8 @@ def main():
     result = run_pipeline(
         target_date=target_date,
         skip_styling=args.skip_styling,
-        skip_twitter=not args.post_twitter  # Invert: --post-twitter means don't skip
+        skip_twitter=not args.post_twitter,  # Invert: --post-twitter means don't skip
+        max_tx_count=args.max_tx_count
     )
     
     # Exit with error code if there were failures
