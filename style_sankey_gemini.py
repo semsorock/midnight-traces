@@ -47,19 +47,27 @@ def style_sankey_diagram(target_date: str | None = None) -> str | None:
     
     # Detailed styling prompt
     prompt = """
-    Transform this Sankey diagram into a stunning, futuristic, deep space, cosmic data visualization with a high-tech, bioluminescent aesthetic.
+    CRITICAL INSTRUCTION: STRICT TOPOLOGY PRESERVATION
+You are functioning as a style-transfer engine, not a data generator. You must maintain a 1:1 structural mapping with the original image.
+1. DO NOT create new connections, flows, or links.
+2. DO NOT bridge gaps between nodes that are not connected in the source.
+3. Apply effects ONLY to the exact pixel coordinates of existing flows.
 
-    STYLE REQUIREMENTS:
-    - Background: A dark, starry void set in deep space with subtle nebula dust and faint, glowing constellation patterns.
-    - Flow/Links: Replace all flow/link colors with ethereal, translucent energy streams and wispy fiber-optic filaments. These should display a gradient of vibrant neon colors (electric blue, magenta, cyan, and deep purple).
-    - Flow Effects: Add ethereal glow effects and bloom effects around the flowing links. Apply particle/sparkle effects along the flow paths.
-    - Nodes: The connection nodes (label boxes) should be glowing, neon-lit pill-shaped bars. Apply a glassmorphism effect to the node label boxes with subtle transparency.
-    - Overall Aesthetic: High-tech, futuristic data visualization, premium feel, bioluminescent, and cinematic, with volumetric lighting and intricate glowing constellations connecting the data points. 8k resolution, sci-fi interface style.
+TASK:
+Reskin this Sankey diagram into a futuristic, deep space, cosmic data visualization.
 
-    IMPORTANT:
-    - Preserve: Keep the overall structure and layout of the Sankey diagram intact.
-    - Data Integrity: Preserve all text labels and the readable structure of the Sankey diagram.
-    """
+VISUAL STYLE GUIDE:
+- Flows (Data Layers): Transform existing flow paths into ethereal, translucent energy streams with wispy fiber-optic textures. Use a vibrant neon gradient (electric blue, magenta, cyan, deep purple). Add bloom and subtle particle effects *strictly within the boundaries* of the existing flows.
+- Nodes (Labels): Convert label boxes into glowing, neon-lit pill-shaped glass bars. distinct from the background.
+- Background (Void): A dark, starry void. faint nebula dust.
+- Background Detail: Faint constellation patterns in the *far background only*. These patterns must be unconnected to the main data flows and significantly dimmer than the data to avoid confusion.
+
+AESTHETIC:
+High-tech, deep space,bioluminescent, cinematic, 8k resolution, sci-fi interface.
+
+FINAL CHECK:
+Ensure the output is topologically identical to the input. No new data paths.
+"""
     
     # Initialize Gemini client with API key from environment
     api_key = os.environ.get("GOOGLE_API_KEY")
@@ -71,7 +79,6 @@ def style_sankey_diagram(target_date: str | None = None) -> str | None:
     print("Sending to Gemini Image API...")
     response = client.models.generate_content(
         model="gemini-3-pro-image-preview",
-        # model="gemini-2.5-flash-image",
         contents=[prompt, source_image],
         config=types.GenerateContentConfig(
             response_modalities=['TEXT', 'IMAGE'],
