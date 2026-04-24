@@ -2,6 +2,8 @@
 
 Visualizing token transactions with Sankey diagrams.
 
+![Example Styled Sankey Diagram](assets/example_sankey.png)
+
 ## Key Features
 - **Data Ingestion**: Fetch token transactions from SQL databases.
 - **Visualisation**: Generate Sankey diagrams using Plotly.
