@@ -75,7 +75,7 @@ def generate_tweet_text(
     formatted_date = format_date_display(date)
     tokens_display = format_token_amount(total_tokens_moved)
     
-    return f"""The $NIGHT  traces for {formatted_date}
+    return f"""The $NIGHT traces for {formatted_date}
 
 - Transactions: {transaction_count:,}
 - Addresses: {unique_addresses:,}

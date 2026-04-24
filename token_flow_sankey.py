@@ -18,9 +18,13 @@ import psycopg2
 import plotly.graph_objects as go
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Database connection string
-DB_CONNECTION_STRING = "postgresql://dbsync10jarkq839ywtvh742nc:UbZEUkHLxSQ@cardano-mainnet.dbsync-v3.demeter.run:5432/dbsync-mainnet"
+DB_CONNECTION_STRING = os.environ.get("DB_CONNECTION_STRING", "")
 
 # Token decimal places (raw amounts from DB are integers with 6 decimals encoded)
 # e.g., 1_000_000_000 raw = 1000.000000 actual NIGHT tokens
